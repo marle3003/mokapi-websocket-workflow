@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Mokapi Collab Demo</title>
+<style>
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    max-width: 720px;
+    margin: 40px auto;
+    padding: 0 20px;
+    color: #1a1a1a;
+  }
+  h1 { font-size: 20px; margin-bottom: 4px; }
+  p.sub { color: #666; margin-top: 0; }
+  .join-row { display: flex; gap: 8px; margin-bottom: 20px; }
+  input[type=text] {
+    padding: 8px 10px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    font-size: 14px;
+  }
+  button {
+    padding: 8px 14px;
+    border: none;
+    border-radius: 6px;
+    background: #2563eb;
+    color: white;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  button.secondary { background: #6b7280; }
+  button:disabled { background: #9ca3af; cursor: not-allowed; }
+  textarea {
+    width: 100%;
+    height: 160px;
+    padding: 12px;
+    font-size: 15px;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    box-sizing: border-box;
+    font-family: inherit;
+  }
+  .meta {
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+    color: #555;
+    margin: 8px 0;
+  }
+  .users span {
+    display: inline-block;
+    background: #eef2ff;
+    color: #3730a3;
+    padding: 2px 8px;
+    border-radius: 999px;
+    margin-right: 6px;
+    font-size: 12px;
+  }
+  .status {
+    font-size: 13px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    margin-bottom: 12px;
+  }
+  .status.connected { background: #ecfdf5; color: #065f46; }
+  .status.disconnected { background: #fef2f2; color: #991b1b; }
+  .log {
+    margin-top: 20px;
+    background: #f9fafb;
+    border: 1px solid #eee;
+    border-radius: 8px;
+    padding: 10px 14px;
+    height: 140px;
+    overflow-y: auto;
+    font-family: ui-monospace, monospace;
+    font-size: 12px;
+    color: #374151;
+  }
+  .log div { margin-bottom: 4px; }
+</style>
+</head>
+<body>
+
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+<script type="text/babel">
+const { useState, useRef, useEffect, useCallback } = React;
+
+// find the smallest edit (offset, deleteCount, text) that turns `oldStr` into `newStr`
+function diff(oldStr, newStr) {
+  let prefix = 0;
+  const maxPrefix = Math.min(oldStr.length, newStr.length);
+  while (prefix < maxPrefix && oldStr[prefix] === newStr[prefix]) prefix++;
+
+  let oldEnd = oldStr.length;
+  let newEnd = newStr.length;
+  while (
+    oldEnd > prefix &&
+    newEnd > prefix &&
+    oldStr[oldEnd - 1] === newStr[newEnd - 1]
+  ) {
+    oldEnd--;
+    newEnd--;
+  }
+
+  return {
+    offset: prefix,
+    deleteCount: oldEnd - prefix,
+    text: newStr.slice(prefix, newEnd)
+  };
+}
+
+function App() {
+  const [docId, setDocId] = useState("demo-doc");
+  const [userId, setUserId] = useState("");
+  const [joined, setJoined] = useState(false);
+  const [connected, setConnected] = useState(false);
+  const [content, setContent] = useState("");
+  const [version, setVersion] = useState(0);
+  const [users, setUsers] = useState([]);
+  const [log, setLog] = useState([]);
+
+  const wsRef = useRef(null);
+  const contentRef = useRef("");   // last known canonical content, used for diffing
+  const versionRef = useRef(0);
+
+  const addLog = useCallback((line) => {
+    const time = new Date().toLocaleTimeString();
+    setLog((prev) => [...prev.slice(-30), `${time}  ${line}`]);
+  }, []);
+
+  const connect = () => {
+    if (!userId.trim()) return;
+    const ws = new WebSocket(
+      `ws://localhost:8765/doc/${encodeURIComponent(docId)}?userId=${encodeURIComponent(userId)}`
+    );
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      setConnected(true);
+      setJoined(true);
+      addLog(`connected as ${userId}`);
+    };
+
+    ws.onclose = () => {
+      setConnected(false);
+      addLog("disconnected");
+    };
+
+    ws.onmessage = (evt) => {
+      const msg = JSON.parse(evt.data);
+
+      if ("content" in msg) {
+        // sync message: full state of the document
+        contentRef.current = msg.content;
+        versionRef.current = msg.version;
+        setContent(msg.content);
+        setVersion(msg.version);
+        setUsers(msg.users);
+        addLog(`sync -> version ${msg.version}`);
+      } else if ("status" in msg) {
+        // presence message
+        addLog(`${msg.userId} ${msg.status}`);
+      }
+    };
+  };
+
+  const disconnect = () => {
+    wsRef.current && wsRef.current.close();
+  };
+
+  const handleChange = (e) => {
+    const newValue = e.target.value;
+    const patch = diff(contentRef.current, newValue);
+
+    // optimistic local update so typing feels instant
+    setContent(newValue);
+    contentRef.current = newValue;
+
+        console.log('test', wsRef.current, wsRef.current.readyState)
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({
+          userId,
+          offset: patch.offset,
+          deleteCount: patch.deleteCount,
+          text: patch.text,
+          version: versionRef.current
+        })
+      );
+    }
+  };
+
+  // deliberately send a patch with a stale (too old) version number,
+  // so you can watch Mokapi bounce it back with a fresh sync instead of applying it
+  const simulateConflict = () => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+    addLog("sending intentionally stale patch...");
+    wsRef.current.send(
+      JSON.stringify({
+        userId,
+        offset: 0,
+        deleteCount: 0,
+        text: "[stale edit] ",
+        version: Math.max(0, versionRef.current - 1)
+      })
+    );
+  };
+
+  useEffect(() => {
+    return () => wsRef.current && wsRef.current.close();
+  }, []);
+
+  if (!joined) {
+    return (
+      <div>
+        <h1>Mokapi Collab Demo</h1>
+        <p className="sub">
+          Mocked with a WebSocket + AsyncAPI. Open this page in two tabs with different
+          user names and the same doc ID to see it sync live.
+        </p>
+        <div className="join-row">
+          <input
+            type="text"
+            placeholder="doc id"
+            value={docId}
+            data-testid="docid-input"
+            onChange={(e) => setDocId(e.target.value)}
+          />
+          <input
+            type="text"
+            placeholder="your name"
+            value={userId}
+            data-testid="userid-input"
+            onChange={(e) => setUserId(e.target.value)}
+          />
+          <button onClick={connect} data-testid="join-button">Join</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <h1>Mokapi Collab Demo</h1>
+      <div
+        className={`status ${connected ? "connected" : "disconnected"}`}
+        data-testid="status"
+      >
+        {connected ? `Connected as ${userId} to "${docId}"` : "Disconnected"}
+      </div>
+
+      <textarea
+        value={content}
+        onChange={handleChange}
+        disabled={!connected}
+        data-testid="editor"
+      />
+
+      <div className="meta">
+        <div className="users" data-testid="users">
+          {users.map((u) => (
+            <span key={u}>{u}</span>
+          ))}
+        </div>
+        <div data-testid="version">version {version}</div>
+      </div>
+
+      <div className="join-row">
+        <button
+          className="secondary"
+          onClick={simulateConflict}
+          disabled={!connected}
+          data-testid="conflict-button"
+        >
+          Simulate stale patch
+        </button>
+        {connected ? (
+          <button className="secondary" onClick={disconnect} data-testid="disconnect-button">
+            Disconnect
+          </button>
+        ) : (
+          <button className="secondary" onClick={connect} data-testid="reconnect-button">
+            Reconnect
+          </button>
+        )}
+      </div>
+
+      <div className="log" data-testid="log">
+        {log.map((line, i) => (
+          <div key={i}>{line}</div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>

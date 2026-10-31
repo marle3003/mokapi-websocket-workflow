@@ -1,0 +1,64 @@
+name: Testing Kafka Workflow
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 11 * * 5"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Start Mokapi
+        run: |
+          docker run -d --rm --name mokapi -p 8080:8080 -p 8765:8765 -v ${{ github.workspace }}/mock:/mock mokapi/mokapi:alpha /mock
+
+      - name: Set Up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 23
+
+      - name: Install Dependencies
+        run: |
+          npm ci --ignore-scripts
+          npx playwright install-deps
+          npx playwright install chromium
+
+      - name: Start web server
+        run: |
+          node server.ts &
+          echo $! > backend.pid
+
+      - name: Run Tests
+        run: npx playwright test
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 30
+
+      - name: Save Mokapi logs
+        if: ${{ !cancelled() }}
+        run: docker logs mokapi > /var/tmp/mokapi.log 2>&1
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: mokapi-logs
+          path: /var/tmp/mokapi.log
+
+      - name: Stop backend server
+        run: kill $(cat backend.pid)
+
+      - name: Stop Mokapi
+        run: docker stop mokapi

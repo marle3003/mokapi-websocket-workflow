@@ -1,0 +1,65 @@
+asyncapi: 3.0.0
+info:
+  title: Collaborative Doc Service
+  version: 1.0.0
+  description: A shared document editing service, similar to Confluence or Notion, where multiple users edit the same document at once.
+
+servers:
+  mokapi:
+    host: 'localhost:8765'
+    protocol: ws
+
+channels:
+  doc:
+    address: /doc/{docId}
+    parameters:
+      docId:
+        description: Unique identifier for the shared document.
+    bindings:
+      ws:
+        query:
+          properties:
+            userId:
+              type: string
+    messages:
+      presence:
+        payload:
+          type: object
+          properties:
+            userId: { type: string }
+            status: { type: string, enum: [joined, left] }
+          required: [userId, status]
+      patch:
+        payload:
+          type: object
+          properties:
+            userId:      { type: string }
+            offset:      { type: integer }
+            deleteCount: { type: integer }
+            text:        { type: string }
+            version:     { type: integer }
+          required: [userId, offset, deleteCount, text, version]
+      sync:
+        payload:
+          type: object
+          properties:
+            content: { type: string }
+            version: { type: integer }
+            users:   { type: array, items: { type: string } }
+          required: [content, version, users]
+
+operations:
+  sendPatch:
+    action: send
+    channel:
+      $ref: '#/channels/doc'
+    messages:
+      - $ref: '#/channels/doc/messages/patch'
+
+  receiveUpdate:
+    action: receive
+    channel:
+      $ref: '#/channels/doc'
+    messages:
+      - $ref: '#/channels/doc/messages/sync'
+      - $ref: '#/channels/doc/messages/presence'
