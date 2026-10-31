@@ -32,13 +32,10 @@ jobs:
           npx playwright install-deps
           npx playwright install chromium
 
-      - name: Start web server
-        run: |
-          node server.ts &
-          echo $! > backend.pid
-
       - name: Run Tests
         run: npx playwright test
+        env:
+          MOKAPI_EXTERNAL: 'true'
 
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
@@ -56,9 +53,6 @@ jobs:
         with:
           name: mokapi-logs
           path: /var/tmp/mokapi.log
-
-      - name: Stop backend server
-        run: kill $(cat backend.pid)
 
       - name: Stop Mokapi
         run: docker stop mokapi
