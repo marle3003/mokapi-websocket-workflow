@@ -5,12 +5,12 @@
   "scripts": {
     "test": "playwright test",
     "test:headed": "playwright test --headed",
-    "serve": "node servestatic.mjs",
-    "mock": "go-mokapi asyncapi.yaml collab.js"
+    "serve": "node server.ts",
+    "mock": "mokapi"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
     "@types/node": "^26.1.1",
-    "go-mokapi": "^0.54.0"
+    "go-mokapi": "^0.55.0"
   }
 }

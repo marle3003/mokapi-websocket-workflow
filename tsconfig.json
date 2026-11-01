@@ -1,10 +1,10 @@
 {
   "compilerOptions": {
-    "lib": ["es2017", "dom"],
+    "lib": ["es2017"],
     "paths": {
       "mokapi": ["./node_modules/go-mokapi/types/index"],
-      "mokapi/*": ["./node_mdodules/go-mokapi/types/*"]
+      "mokapi/*": ["./node_modules/go-mokapi/types/*"]
     },
-    "types": ["node", "go-mokapi/types/global"]
+    "types": ["go-mokapi/types/global", "node"]
   }
 }
